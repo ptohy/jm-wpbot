@@ -8,6 +8,8 @@ import { withConversationLock } from './jobs/queue.js';
 import { processConversationTurn } from './conversation/turn.js';
 import { CloudWhatsAppClient } from './messaging/whatsapp-client.js';
 import { claimOutbound, markFailed, markSent } from './messaging/outbox.js';
+import { createLunaResponder } from './ai/luna.js';
+import { PostgresLunaToolExecutor } from './ai/postgres-executor.js';
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -39,7 +41,7 @@ export async function startWorker(options: BuildAppOptions = {}): Promise<Fastif
   const config = options.config ?? loadConfig();
   // The worker owns exactly one DB pool and one pg-boss instance.
   const app = await buildApp({ ...options, config: { ...config, whatsappAppSecret: undefined, whatsappVerifyToken: undefined } });
-  if (!config.whatsappAppSecret || !config.whatsappAccessToken || !config.whatsappPhoneNumberId) {
+  if (!config.whatsappAccessToken || !config.whatsappPhoneNumberId) {
     const heartbeat = setInterval(() => undefined, 60_000);
     app.addHook('onClose', async () => clearInterval(heartbeat));
     registerGracefulShutdown(app);
@@ -51,7 +53,11 @@ export async function startWorker(options: BuildAppOptions = {}): Promise<Fastif
   await boss.work('conversation.turn', async ([job]) => {
     const data = job.data as { conversationId?: string };
     if (!data.conversationId) throw new Error('conversationId is required');
-    await withConversationLock(db, data.conversationId, (tx) => processConversationTurn(tx, data.conversationId!));
+    await withConversationLock(db, data.conversationId, (tx) => {
+      if (!config.openaiApiKey) return processConversationTurn(tx, data.conversationId!);
+      const responder = createLunaResponder({ apiKey: config.openaiApiKey, model: config.openaiModel, baseUrl: config.openaiBaseUrl }, new PostgresLunaToolExecutor(tx));
+      return processConversationTurn(tx, data.conversationId!, responder);
+    });
   });
   const client = new CloudWhatsAppClient(config.whatsappAccessToken, config.whatsappPhoneNumberId);
   const heartbeat = setInterval(async () => {

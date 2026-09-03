@@ -119,6 +119,14 @@ export interface ScheduleBlocksTable extends Timestamped {
   timezone: Generated<string>;
   reason: string | null;
 }
+export interface WorkingHoursTable extends Timestamped {
+  id: Generated<string>;
+  professional_id: string;
+  weekday: number;
+  starts_at_local: string;
+  ends_at_local: string;
+  active: Generated<boolean>;
+}
 
 export interface InboundEventsTable {
   id: Generated<string>;
@@ -167,6 +175,7 @@ export interface Database {
   messages: MessagesTable;
   appointments: AppointmentsTable;
   schedule_blocks: ScheduleBlocksTable;
+  working_hours: WorkingHoursTable;
   inbound_events: InboundEventsTable;
   outbox_messages: OutboxMessagesTable;
   audit_log: AuditLogTable;

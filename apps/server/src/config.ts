@@ -7,6 +7,9 @@ export interface AppConfig {
   whatsappAppSecret?: string;
   whatsappAccessToken?: string;
   whatsappPhoneNumberId?: string;
+  openaiApiKey?: string;
+  openaiModel: string;
+  openaiBaseUrl: string;
 }
 
 type Environment = Record<string, string | undefined>;
@@ -14,6 +17,8 @@ type Environment = Record<string, string | undefined>;
 export function loadConfig(env: Environment = process.env): AppConfig {
   const databaseUrl = env.DATABASE_URL?.trim();
   if (!databaseUrl) throw new Error('DATABASE_URL is required');
+  const nodeEnv = env.NODE_ENV?.trim() || 'development';
+  if (nodeEnv === 'production' && !env.OPENAI_API_KEY?.trim()) throw new Error('OPENAI_API_KEY is required in production');
 
   const portValue = env.PORT ?? '3000';
   const port = Number(portValue);
@@ -25,10 +30,13 @@ export function loadConfig(env: Environment = process.env): AppConfig {
     databaseUrl,
     host: env.HOST?.trim() || '0.0.0.0',
     port,
-    nodeEnv: env.NODE_ENV?.trim() || 'production',
+    nodeEnv,
     whatsappVerifyToken: env.WHATSAPP_VERIFY_TOKEN?.trim() || undefined,
     whatsappAppSecret: env.WHATSAPP_APP_SECRET?.trim() || undefined,
     whatsappAccessToken: env.WHATSAPP_ACCESS_TOKEN?.trim() || undefined,
     whatsappPhoneNumberId: env.WHATSAPP_PHONE_NUMBER_ID?.trim() || undefined,
+    openaiApiKey: env.OPENAI_API_KEY?.trim() || undefined,
+    openaiModel: env.OPENAI_MODEL?.trim() || 'gpt-5.6-luna',
+    openaiBaseUrl: env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1',
   };
 }
