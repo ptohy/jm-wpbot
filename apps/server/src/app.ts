@@ -10,6 +10,8 @@ import { CloudWhatsAppClient } from './messaging/whatsapp-client.js';
 import { claimOutbound, markFailed, markSent } from './messaging/outbox.js';
 import { createLunaResponder } from './ai/luna.js';
 import { PostgresLunaToolExecutor } from './ai/postgres-executor.js';
+import { registerAdminPanel } from './http/admin-panel.js';
+import formbody from '@fastify/formbody';
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -19,6 +21,7 @@ export interface BuildAppOptions {
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const config = options.config ?? loadConfig();
   const app = Fastify({ logger: options.logger ?? false });
+  await app.register(formbody);
   await app.register(rawBody, { field: 'rawBody', global: false, encoding: 'utf8', runFirst: true });
 
   app.get('/healthz', async () => ({ status: 'ok' }));
@@ -31,6 +34,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const db = createDatabase(config.databaseUrl);
     const boss = await createQueue(config.databaseUrl);
     registerMetaWebhook(app, db, boss, { verifyToken: config.whatsappVerifyToken, appSecret: config.whatsappAppSecret });
+    registerAdminPanel(app, db, { nodeEnv: config.nodeEnv, devUser: process.env.PANEL_DEV_USER });
     app.addHook('onClose', async () => { await boss.stop(); await db.destroy(); });
   }
   return app;
