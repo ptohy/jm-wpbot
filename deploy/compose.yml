@@ -1,0 +1,41 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: apps/server/Dockerfile
+    image: atendente-whatsapp:local
+    command: ["node", "dist/apps/server/src/app.js"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://booking:booking@postgres:5432/booking}
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  worker:
+    image: atendente-whatsapp:local
+    command: ["node", "dist/apps/server/src/app.js", "--worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgres://booking:booking@postgres:5432/booking}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-booking}
+      POSTGRES_USER: ${POSTGRES_USER:-booking}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-booking}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:
