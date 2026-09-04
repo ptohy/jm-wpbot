@@ -14,6 +14,8 @@ import { registerAdminPanel } from './http/admin-panel.js';
 import formbody from '@fastify/formbody';
 import { enqueueDueReminders } from './jobs/reminders.js';
 import { canRetry, retryAt } from './messaging/reminders.js';
+import { OpenAITranscriber } from './media/transcription.js';
+import { WhatsAppMediaDownloader } from './media/whatsapp-media.js';
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -63,7 +65,8 @@ export async function startWorker(options: BuildAppOptions = {}): Promise<Fastif
     await withConversationLock(db, data.conversationId, (tx) => {
       if (!config.openaiApiKey) return processConversationTurn(tx, data.conversationId!);
       const responder = createLunaResponder({ apiKey: config.openaiApiKey, model: config.openaiModel, baseUrl: config.openaiBaseUrl }, new PostgresLunaToolExecutor(tx));
-      return processConversationTurn(tx, data.conversationId!, responder);
+      const transcriber = config.whatsappAccessToken ? new OpenAITranscriber({ apiKey: config.openaiApiKey, baseUrl: config.openaiBaseUrl, model: config.transcriptionModel, timeoutMs: config.mediaTimeoutMs, mediaFetcher: (id) => new WhatsAppMediaDownloader({ accessToken: config.whatsappAccessToken!, timeoutMs: config.mediaTimeoutMs }).download(id) }) : undefined;
+      return processConversationTurn(tx, data.conversationId!, responder, transcriber);
     });
   });
   await boss.work('reminders.sweep', async () => {

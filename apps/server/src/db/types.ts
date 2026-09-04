@@ -84,6 +84,9 @@ export interface MessagesTable {
   payload: Json;
   occurred_at: Timestamp;
   created_at: Generated<Timestamp>;
+  media_transcription_status: 'pending' | 'completed' | 'failed' | 'rejected' | null;
+  media_transcription_text: string | null;
+  media_transcription_error: string | null;
 }
 
 export interface AppointmentsTable extends Timestamped {

@@ -10,6 +10,8 @@ export interface AppConfig {
   openaiApiKey?: string;
   openaiModel: string;
   openaiBaseUrl: string;
+  transcriptionModel: string;
+  mediaTimeoutMs: number;
 }
 
 type Environment = Record<string, string | undefined>;
@@ -26,6 +28,11 @@ export function loadConfig(env: Environment = process.env): AppConfig {
     throw new Error('PORT must be an integer between 1 and 65535');
   }
 
+  const mediaTimeoutMs = Number(env.MEDIA_TIMEOUT_MS ?? '15000');
+  if (!Number.isFinite(mediaTimeoutMs) || mediaTimeoutMs <= 0) {
+    throw new Error('MEDIA_TIMEOUT_MS must be a finite number greater than 0');
+  }
+
   return {
     databaseUrl,
     host: env.HOST?.trim() || '0.0.0.0',
@@ -38,5 +45,7 @@ export function loadConfig(env: Environment = process.env): AppConfig {
     openaiApiKey: env.OPENAI_API_KEY?.trim() || undefined,
     openaiModel: env.OPENAI_MODEL?.trim() || 'gpt-5.6-luna',
     openaiBaseUrl: env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1',
+    transcriptionModel: env.TRANSCRIPTION_MODEL?.trim() || 'gpt-4o-mini-transcribe',
+    mediaTimeoutMs,
   };
 }
