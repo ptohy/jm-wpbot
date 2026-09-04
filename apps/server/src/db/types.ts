@@ -9,6 +9,7 @@ type Json = ColumnType<JsonValue, JsonValue, JsonValue>;
 export type AppointmentStatus = 'hold' | 'confirmed' | 'cancelled' | 'completed' | 'no_show' | 'expired';
 export type MessageDirection = 'inbound' | 'outbound';
 export type OutboxStatus = 'pending' | 'retrying' | 'sent' | 'delivered' | 'failed' | 'cancelled';
+export type ReminderKind = '24h' | '3h';
 
 interface Timestamped {
   created_at: Generated<Timestamp>;
@@ -142,6 +143,7 @@ export interface OutboxMessagesTable extends Timestamped {
   conversation_id: string | null;
   customer_id: string;
   appointment_id: string | null;
+  reminder_kind: ReminderKind | null;
   status: Generated<OutboxStatus>;
   payload: Json;
   provider_message_id: string | null;

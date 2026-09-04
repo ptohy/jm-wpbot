@@ -179,6 +179,7 @@ create table outbox_messages (
   conversation_id uuid references conversations(id) on delete set null,
   customer_id uuid not null references customers(id) on delete restrict,
   appointment_id uuid references appointments(id) on delete set null,
+  reminder_kind text check (reminder_kind in ('24h', '3h')),
   status text not null default 'pending' check (status in ('pending', 'retrying', 'sent', 'delivered', 'failed', 'cancelled')),
   payload jsonb not null,
   provider_message_id text unique,

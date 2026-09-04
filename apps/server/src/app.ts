@@ -12,6 +12,8 @@ import { createLunaResponder } from './ai/luna.js';
 import { PostgresLunaToolExecutor } from './ai/postgres-executor.js';
 import { registerAdminPanel } from './http/admin-panel.js';
 import formbody from '@fastify/formbody';
+import { enqueueDueReminders } from './jobs/reminders.js';
+import { canRetry, retryAt } from './messaging/reminders.js';
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -54,6 +56,7 @@ export async function startWorker(options: BuildAppOptions = {}): Promise<Fastif
   const db = createDatabase(config.databaseUrl);
   const boss = await createQueue(config.databaseUrl);
   await boss.createQueue('conversation.turn');
+  await boss.createQueue('reminders.sweep');
   await boss.work('conversation.turn', async ([job]) => {
     const data = job.data as { conversationId?: string };
     if (!data.conversationId) throw new Error('conversationId is required');
@@ -63,6 +66,11 @@ export async function startWorker(options: BuildAppOptions = {}): Promise<Fastif
       return processConversationTurn(tx, data.conversationId!, responder);
     });
   });
+  await boss.work('reminders.sweep', async () => {
+    try { await enqueueDueReminders(db); }
+    finally { await boss.send('reminders.sweep', {}, { singletonKey: 'reminders-sweep', startAfter: 60 }); }
+  });
+  await boss.send('reminders.sweep', {}, { singletonKey: 'reminders-sweep', startAfter: 1 });
   const client = new CloudWhatsAppClient(config.whatsappAccessToken, config.whatsappPhoneNumberId);
   const heartbeat = setInterval(async () => {
     const pending = await (await import('./messaging/outbox.js')).claimOutbound(db);
@@ -72,7 +80,8 @@ export async function startWorker(options: BuildAppOptions = {}): Promise<Fastif
         const result = await client.sendPayload(customer.whatsapp_phone, row.payload as Record<string, unknown>);
         await markSent(db, row.id, result.providerMessageId);
       } catch (error) {
-        await markFailed(db, row.id, error instanceof Error ? error.message : String(error), new Date(Date.now() + 30_000));
+        const attempt = row.attempts + 1;
+        await markFailed(db, row.id, error instanceof Error ? error.message : String(error), retryAt(attempt), !canRetry(attempt));
       }
     }
   }, 1000);
