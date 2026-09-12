@@ -1,0 +1,29 @@
+{
+  "name": "atendente-whatsapp-estetica",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/apps/server/src/app.js",
+    "start:worker": "node dist/apps/server/src/app.js --worker",
+    "dev": "tsx watch apps/server/src/app.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "fastify": "^5.4.0",
+    "@fastify/formbody": "^8.0.2",
+    "fastify-raw-body": "^6.0.1",
+    "kysely": "^0.28.17",
+    "pg": "^8.13.1",
+    "pg-boss": "^10.1.5",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
