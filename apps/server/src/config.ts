@@ -12,7 +12,11 @@ export interface AppConfig {
   openaiBaseUrl: string;
   transcriptionModel: string;
   mediaTimeoutMs: number;
+  hubInternalBaseUrl?: string;
+  hubInternalApiToken?: string;
+  hubInternalOrganizationId?: string;
 }
+
 
 type Environment = Record<string, string | undefined>;
 
@@ -29,8 +33,17 @@ export function loadConfig(env: Environment = process.env): AppConfig {
   }
 
   const mediaTimeoutMs = Number(env.MEDIA_TIMEOUT_MS ?? '15000');
+  const hubInternalApiToken = env.HUB_INTERNAL_API_TOKEN?.trim() || undefined;
+  const hubInternalOrganizationId = env.HUB_INTERNAL_ORGANIZATION_ID?.trim() || undefined;
+  const hubInternalBaseUrl = env.HUB_INTERNAL_BASE_URL?.trim() || 'https://hub.tohy.com.br';
   if (!Number.isFinite(mediaTimeoutMs) || mediaTimeoutMs <= 0) {
     throw new Error('MEDIA_TIMEOUT_MS must be a finite number greater than 0');
+  }
+  if (hubInternalApiToken && !hubInternalOrganizationId) {
+    throw new Error('HUB_INTERNAL_ORGANIZATION_ID is required when HUB_INTERNAL_API_TOKEN is set');
+  }
+  if (hubInternalOrganizationId && !hubInternalApiToken) {
+    throw new Error('HUB_INTERNAL_API_TOKEN is required when HUB_INTERNAL_ORGANIZATION_ID is set');
   }
 
   return {
@@ -47,5 +60,8 @@ export function loadConfig(env: Environment = process.env): AppConfig {
     openaiBaseUrl: env.OPENAI_BASE_URL?.trim() || 'https://api.openai.com/v1',
     transcriptionModel: env.TRANSCRIPTION_MODEL?.trim() || 'gpt-4o-mini-transcribe',
     mediaTimeoutMs,
+    hubInternalBaseUrl,
+    hubInternalApiToken,
+    hubInternalOrganizationId,
   };
 }
