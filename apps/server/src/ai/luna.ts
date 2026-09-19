@@ -64,6 +64,7 @@ export function renderFacts(value: unknown): string {
   if (v.kind === 'availability') return `Horários disponíveis para ${v.serviceName ?? 'o serviço'} em ${v.date}:\n${((value as { slots?: Array<{ startTime: string; endTime: string }> }).slots ?? []).map(s => `• ${s.startTime}–${s.endTime}`).join('\n') || 'Não há horários disponíveis.'}`;
   if (v.kind === 'hold') return `Confira: ${v.serviceName}, ${v.date} das ${v.startTime} às ${v.endTime}, com ${v.professionalName}. Valor: R$ ${((v.priceCents ?? 0) / 100).toFixed(2).replace('.', ',')}. Responda “confirmar” para concluir.`;
   if (v.kind === 'confirmed') return `Agendamento confirmado: ${v.serviceName}, ${v.date} das ${v.startTime} às ${v.endTime}, com ${v.professionalName}.${typeof v.priceCents === 'number' ? ` Valor: R$ ${(v.priceCents / 100).toFixed(2).replace('.', ',')}.` : ''}`;
+  if (v.kind === 'cancelled') return 'Agendamento cancelado.';
   return 'Não consegui obter os dados da agenda. Vou encaminhar para atendimento.';
 }
 

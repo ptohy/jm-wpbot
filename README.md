@@ -4,29 +4,40 @@ Canal de atendimento via WhatsApp Cloud API, com GPT-5.6 Luna, filas duráveis e
 
 ## Arquitetura canônica
 
-O **Tohy Hub** é a fonte de verdade para catálogo, profissionais, disponibilidade, leads, clientes e agendamentos do Studio. O `jm-wpbot` deve atuar como adapter/orquestrador de canal; n8n também não deve possuir dados mestres de agenda ou catálogo.
+O **Tohy Hub** é a fonte de verdade para catálogo, profissionais, disponibilidade, leads, clientes e agendamentos do Studio. O `jm-wpbot` atua como adapter/orquestrador de canal; n8n também não deve possuir dados mestres de agenda ou catálogo.
 
-Contrato interno já disponível no Hub:
+Contrato interno disponível no Hub:
 
 - `GET /api/internal/jm/catalog`
 - `GET /api/internal/jm/availability`
 - `POST /api/internal/jm/leads`
 - `POST /api/internal/jm/appointments`
+- `POST /api/internal/jm/booking-holds`
+- `POST /api/internal/jm/booking-holds/:holdId/confirm`
+- `POST /api/internal/jm/booking-holds/:holdId/cancel`
 
 A autenticação usa credencial interna dedicada e organização fixa no Hub. Segredos nunca devem ser versionados.
 
-## Estado transicional — H000056 / 2026-09-17
+## Estado transicional — Hub canonical scheduling
 
-A implementação atual do bot ainda usa PostgreSQL local para `services`, `professionals`, `appointments`, disponibilidade e o fluxo `hold -> confirm/cancel`. Esse banco é **legado operacional**, não a arquitetura-alvo.
+O executor Luna usa o Hub para catálogo, disponibilidade, reserva temporária, confirmação e cancelamento quando `HUB_INTERNAL_API_TOKEN` e `HUB_INTERNAL_ORGANIZATION_ID` estão configurados. O bot envia a organização fixa pelo cabeçalho `X-Hub-Organization` e usa `sourceDetail=jm-wpbot` nas reservas.
 
-Não fazer dual-write nem sincronização bidirecional entre o banco local e o Hub. A migração do executor de agenda só pode ocorrer quando o Hub tiver um contrato canônico equivalente para reserva temporária/hold, confirmação e cancelamento. O endpoint atual de criação direta de appointment não substitui com segurança o hold de cinco minutos do bot, pois um hold invisível ao Hub permitiria disputa de slot/double booking.
+Se a configuração interna do Hub estiver ausente, o worker mantém o executor PostgreSQL legado como rollback seguro. Não há dual-write: em modo Hub, slot occupancy e appointments pertencem ao Hub; o PostgreSQL local permanece para conversas, mensagens, outbox, jobs, painel operacional legado e estado de canal.
 
-Até esse boundary existir, manter o executor legado funcional e isolado; mudanças de catálogo/agendamento mestre devem convergir para o Hub.
+Configuração necessária para o modo Hub:
+
+```env
+HUB_INTERNAL_BASE_URL=https://hub.tohy.com.br
+HUB_INTERNAL_API_TOKEN=<segredo provisionado no Portainer>
+HUB_INTERNAL_ORGANIZATION_ID=<id fixo da Jessica Marques no Hub>
+```
+
+`HUB_INTERNAL_API_TOKEN` e `HUB_INTERNAL_ORGANIZATION_ID` devem ser definidos juntos. Definir apenas um deles falha no bootstrap para evitar operação parcial.
 
 ## Stack
 
 - Node.js + TypeScript + Fastify
-- PostgreSQL 16 para estado legado do bot e jobs
+- PostgreSQL 16 para estado de canal, conversas, outbox e jobs
 - pg-boss para jobs duráveis
 - GPT-5.6 Luna para conversa
 - WhatsApp Cloud API oficial

@@ -22,3 +22,8 @@ describe('LunaAdapter', () => {
 it('renderer never accepts model-provided prose for facts', () => {
   expect(renderFacts({ kind: 'confirmed', serviceName: 'Design', date: '11/09/2026', startTime: '10:00', endTime: '11:00', professionalName: 'Jessica' })).toBe('Agendamento confirmado: Design, 11/09/2026 das 10:00 às 11:00, com Jessica.');
 });
+
+
+it('renderer confirms canonical cancellation facts', () => {
+  expect(renderFacts({ kind: 'cancelled', appointmentId: 'hold-1' })).toBe('Agendamento cancelado.');
+});

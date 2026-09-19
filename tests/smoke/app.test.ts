@@ -22,6 +22,23 @@ describe('runtime bootstrap', () => {
     expect(() => loadConfig({})).toThrow(/DATABASE_URL/);
   });
 
+  it('enables Hub canonical scheduling only with complete internal credentials', () => {
+    expect(() => loadConfig({
+      DATABASE_URL: 'postgres://localhost/test',
+      HUB_INTERNAL_API_TOKEN: 'unit_test_value',
+    })).toThrow(/HUB_INTERNAL_ORGANIZATION_ID/);
+
+    const config = loadConfig({
+      DATABASE_URL: 'postgres://localhost/test',
+      HUB_INTERNAL_API_TOKEN: 'unit_test_value',
+      HUB_INTERNAL_ORGANIZATION_ID: 'org-1',
+    });
+
+    expect(config.hubInternalApiToken).toBe('unit_test_value');
+    expect(config.hubInternalOrganizationId).toBe('org-1');
+    expect(config.hubInternalBaseUrl).toBe('https://hub.tohy.com.br');
+  });
+
   it('starts worker mode without binding an HTTP listener', async () => {
     const worker = await startWorker({ config: loadConfig({ DATABASE_URL: 'postgres://localhost/test' }) });
 
