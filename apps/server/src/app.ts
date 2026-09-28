@@ -9,7 +9,6 @@ import { processConversationTurn } from './conversation/turn.js';
 import { CloudWhatsAppClient } from './messaging/whatsapp-client.js';
 import { claimOutbound, markFailed, markSent } from './messaging/outbox.js';
 import { createLunaResponder } from './ai/luna.js';
-import { PostgresLunaToolExecutor } from './ai/postgres-executor.js';
 import { HubLunaToolExecutor } from './ai/hub-executor.js';
 import { registerAdminPanel } from './http/admin-panel.js';
 import formbody from '@fastify/formbody';
@@ -65,17 +64,19 @@ export async function startWorker(options: BuildAppOptions = {}): Promise<Fastif
     if (!data.conversationId) throw new Error('conversationId is required');
     await withConversationLock(db, data.conversationId, (tx) => {
       if (!config.openaiApiKey) return processConversationTurn(tx, data.conversationId!);
-      const executor = config.hubInternalApiToken && config.hubInternalOrganizationId
-        ? new HubLunaToolExecutor({
+      if (!config.hubInternalApiToken || !config.hubInternalOrganizationId) {
+        throw new Error('Hub canonical scheduling is not configured');
+      }
+      const executor = new HubLunaToolExecutor({
           baseUrl: config.hubInternalBaseUrl ?? 'https://hub.tohy.com.br',
           token: config.hubInternalApiToken,
           organizationId: config.hubInternalOrganizationId,
+          timeoutMs: config.hubInternalTimeoutMs,
           customerLookup: async (phone) => {
             const customer = await tx.selectFrom('customers').select(['display_name as name', 'whatsapp_phone as phone']).where('whatsapp_phone', '=', phone).executeTakeFirst();
             return customer ? { name: customer.name ?? customer.phone, phone: customer.phone } : null;
           },
-        })
-        : new PostgresLunaToolExecutor(tx);
+        });
       const responder = createLunaResponder({ apiKey: config.openaiApiKey, model: config.openaiModel, baseUrl: config.openaiBaseUrl }, executor);
       const transcriber = config.whatsappAccessToken ? new OpenAITranscriber({ apiKey: config.openaiApiKey, baseUrl: config.openaiBaseUrl, model: config.transcriptionModel, timeoutMs: config.mediaTimeoutMs, mediaFetcher: (id) => new WhatsAppMediaDownloader({ accessToken: config.whatsappAccessToken!, timeoutMs: config.mediaTimeoutMs }).download(id) }) : undefined;
       return processConversationTurn(tx, data.conversationId!, responder, transcriber);

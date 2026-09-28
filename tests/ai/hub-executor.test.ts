@@ -44,4 +44,17 @@ describe('HubLunaToolExecutor', () => {
     expect(JSON.parse(holdCall!.init!.body as string)).toMatchObject({ customer: { name: 'Maria Silva', phone: '5521999999999' }, professionalId: 'pro-1', serviceId: 'svc-1', startAt: '2026-09-04T13:00:00.000Z', sourceDetail: 'jm-wpbot' });
     expect(confirm).toMatchObject({ kind: 'confirmed', appointmentId: 'apt-1', priceCents: 8500, date: '2026-09-04', startTime: '10:00', endTime: '11:00' });
   });
+
+  it('cancels the canonical hold and reports Hub timeout as recoverable', async () => {
+    const calls: string[] = [];
+    const fetcher = async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push(String(url));
+      if (String(url).endsWith('/cancel')) return jsonResponse({ holdId: 'hold-1', state: 'released' });
+      return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted'))));
+    };
+    const executor = new HubLunaToolExecutor({ baseUrl: 'https://hub.tohy.com.br', token: 'secret-token', organizationId: 'org-1', timeoutMs: 1, fetch: fetcher as typeof fetch });
+    await expect(executor.execute({ action: 'cancel_appointment', appointmentId: 'hold-1' }, { phone: '5511' })).resolves.toEqual({ kind: 'cancelled', appointmentId: 'hold-1' });
+    await expect(executor.execute({ action: 'list_services' }, { phone: '5511' })).rejects.toThrow('timed out');
+    expect(calls.some((url) => url.endsWith('/booking-holds/hold-1/cancel'))).toBe(true);
+  });
 });
