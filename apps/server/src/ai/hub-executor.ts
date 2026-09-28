@@ -13,6 +13,7 @@ export interface HubLunaToolExecutorConfig {
   organizationId: string;
   fetch?: typeof globalThis.fetch;
   customerLookup?: (phone: string) => Promise<HubCustomer | null>;
+  timeoutMs?: number;
 }
 
 type HubService = {
@@ -74,12 +75,20 @@ export class HubLunaToolExecutor implements LunaToolExecutor {
   }
 
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
-    const response = await this.fetcher(`${this.baseUrl}${path}`, {
-      ...init,
-      headers: { ...this.headers(), ...(init.headers ?? {}) },
-    });
-    if (!response.ok) throw new Error(`Hub internal request failed (${response.status})`);
-    return await response.json() as T;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), this.config.timeoutMs ?? 10000);
+    try {
+      const response = await this.fetcher(`${this.baseUrl}${path}`, {
+        ...init, signal: controller.signal,
+        headers: { ...this.headers(), ...(init.headers ?? {}) },
+      });
+      if (!response.ok) throw new Error(`Hub internal request failed (${response.status})`);
+      return await response.json() as T;
+    } catch (error) {
+      if (error instanceof Error && error.message === 'Hub internal request failed') throw error;
+      if (controller.signal.aborted) throw new Error('Hub internal request timed out');
+      throw new Error('Hub internal request failed');
+    } finally { clearTimeout(timer); }
   }
 
   private async listServices() {
