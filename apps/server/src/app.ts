@@ -16,6 +16,7 @@ import { enqueueDueReminders } from './jobs/reminders.js';
 import { canRetry, retryAt } from './messaging/reminders.js';
 import { OpenAITranscriber } from './media/transcription.js';
 import { WhatsAppMediaDownloader } from './media/whatsapp-media.js';
+import { registerFiscalDelivery } from './http/fiscal-delivery.js';
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -37,7 +38,8 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   if (config.whatsappVerifyToken && config.whatsappAppSecret) {
     const db = createDatabase(config.databaseUrl);
     const boss = await createQueue(config.databaseUrl);
-    registerMetaWebhook(app, db, boss, { verifyToken: config.whatsappVerifyToken, appSecret: config.whatsappAppSecret });
+    registerMetaWebhook(app, db, boss, { verifyToken: config.whatsappVerifyToken, appSecret: config.whatsappAppSecret, hubInternalBaseUrl: config.hubInternalBaseUrl, hubInternalApiToken: config.hubInternalApiToken, hubInternalOrganizationId: config.hubInternalOrganizationId });
+    if (config.fiscalInternalToken) registerFiscalDelivery(app, db, config.fiscalInternalToken);
     registerAdminPanel(app, db, { nodeEnv: config.nodeEnv, devUser: process.env.PANEL_DEV_USER });
     app.addHook('onClose', async () => { await boss.stop(); await db.destroy(); });
   }
