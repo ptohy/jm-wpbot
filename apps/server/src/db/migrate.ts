@@ -53,8 +53,14 @@ async function bootstrapLegacyState(client: PoolClient): Promise<void> {
   if (await indexExists(client, 'outbox_messages_appointment_reminder_kind_uidx')) {
     await applied('002_reminder_idempotency.sql');
   }
+  if (await tableExists(client, 'working_hours')) {
+    await applied('002_working_hours.sql');
+  }
+  if (await columnExists(client, 'messages', 'media_transcription_status')) {
+    await applied('003_media_transcription.sql');
+  }
   if (await columnExists(client, 'outbox_messages', 'hub_intent_id')) {
-    await applied('003_hub_intent_delivery.sql');
+    await applied('004_hub_intent_delivery.sql');
   }
 }
 
