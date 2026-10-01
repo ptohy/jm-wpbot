@@ -225,6 +225,22 @@ describe('initial appointment schema', () => {
     expect(sql).toContain('outbox_messages_hub_intent_unique');
   });
 
+  it.runIf(dockerAvailable)('baselines an existing legacy schema without replaying migrations', async () => {
+    if (!databaseUrl || !pool) throw new Error('PostgreSQL URL was not initialized');
+    const { runMigrations } = await import('../../apps/server/src/db/migrate.js');
+
+    await expect(runMigrations(databaseUrl)).resolves.toEqual([]);
+
+    const ledger = await pool.query<{ name: string }>(
+      'select name from schema_migrations order by name',
+    );
+    expect(ledger.rows.map((row) => row.name)).toEqual([
+      '001_initial.sql',
+      '002_reminder_idempotency.sql',
+      '003_hub_intent_delivery.sql',
+    ]);
+  });
+
   it.runIf(dockerAvailable)('provides the migrated tables through a Kysely client', async () => {
     if (!databaseUrl) throw new Error('PostgreSQL URL was not initialized');
 
