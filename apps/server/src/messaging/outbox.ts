@@ -173,6 +173,28 @@ export async function markFailed(
     .execute();
 }
 
+export async function listPendingHubDeliveryReports(
+  db: Db,
+  limit = 20,
+) {
+  return db
+    .selectFrom('outbox_messages')
+    .select([
+      'id',
+      'status',
+      'provider_message_id',
+      'hub_intent_id',
+      'hub_delivery_reported_at',
+      'last_error',
+    ])
+    .where('hub_intent_id', 'is not', null)
+    .where('hub_delivery_reported_at', 'is', null)
+    .where('status', 'in', ['delivered', 'failed'] as OutboxStatus[])
+    .orderBy('updated_at')
+    .limit(limit)
+    .execute();
+}
+
 export async function findHubDeliveryReportCandidate(
   db: Db,
   hubIntentId: string,
