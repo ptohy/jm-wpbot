@@ -120,6 +120,24 @@ export async function markDeliveredByProviderMessageId(
     .executeTakeFirst();
 }
 
+export async function markFailedByProviderMessageId(
+  db: Db,
+  providerMessageId: string,
+  error: string,
+) {
+  return db
+    .updateTable('outbox_messages')
+    .set({
+      status: 'failed',
+      last_error: error.slice(0, 500),
+      updated_at: new Date() as any,
+    })
+    .where('provider_message_id', '=', providerMessageId)
+    .where('status', '!=', 'failed')
+    .returning(['id', 'hub_intent_id'])
+    .executeTakeFirst();
+}
+
 export async function markSent(
   db: Db,
   id: string,
