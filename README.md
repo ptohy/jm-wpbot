@@ -30,6 +30,7 @@ Configuração necessária para o modo Hub:
 HUB_INTERNAL_BASE_URL=https://hub.tohy.com.br
 HUB_INTERNAL_API_TOKEN=<segredo provisionado no Portainer>
 HUB_INTERNAL_ORGANIZATION_ID=<id fixo da Jessica Marques no Hub>
+AUTOMATION_INTERNAL_TOKEN=<segredo dedicado n8n -> Bella>
 ```
 
 `HUB_INTERNAL_API_TOKEN` e `HUB_INTERNAL_ORGANIZATION_ID` devem ser definidos juntos. Definir apenas um deles falha no bootstrap para evitar operação parcial.
@@ -59,7 +60,7 @@ Backup pré-redeploy criado no host Docker em `/root/backups/jm-wpbot/20260917T1
 
 1. Copie `.env.example` para `.env` e troque os segredos.
 2. Suba a stack de desenvolvimento conforme o Compose do repositório.
-3. Execute migrations antes de iniciar `web`/`worker`.
+3. O serviço `migrate` aplica migrations pendentes automaticamente antes de liberar `web`/`worker`.
 4. Mantenha webhook HTTPS com validação HMAC e painel administrativo atrás do Cloudflare Access.
 
 Docker de produção é administrado exclusivamente por **Portainer Stack**; não usar `docker compose` direto para alterar a stack de produção.

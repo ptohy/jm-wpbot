@@ -12,6 +12,7 @@ ENV NODE_ENV=production
 COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/apps/server/src/db/migrations ./dist/apps/server/src/db/migrations
 USER node
 EXPOSE 3000
 CMD ["node", "dist/apps/server/src/app.js"]

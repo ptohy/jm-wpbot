@@ -39,6 +39,15 @@ describe('runtime bootstrap', () => {
     expect(config.hubInternalBaseUrl).toBe('https://hub.tohy.com.br');
   });
 
+  it('loads the dedicated n8n-to-Bella automation token', () => {
+    const config = loadConfig({
+      DATABASE_URL: 'postgres://localhost/test',
+      AUTOMATION_INTERNAL_TOKEN: '  relationship_test_token  ',
+    });
+
+    expect(config.automationInternalToken).toBe('relationship_test_token');
+  });
+
   it('starts worker mode without binding an HTTP listener', async () => {
     const worker = await startWorker({ config: loadConfig({ DATABASE_URL: 'postgres://localhost/test' }) });
 
