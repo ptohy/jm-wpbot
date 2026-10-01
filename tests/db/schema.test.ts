@@ -112,7 +112,9 @@ beforeAll(async () => {
   const port = (JSON.parse(portJson) as Record<string, Array<{ HostPort: string }>>)['5432/tcp'][0].HostPort;
   databaseUrl = `postgres://test:test@127.0.0.1:${port}/test`;
   pool = await waitForDatabase(databaseUrl);
-  await pool.query(await readFile(migrationPath, 'utf8'));
+  for (const path of migrationPaths) {
+    await pool.query(await readFile(path, 'utf8'));
+  }
 }, 20_000);
 
 afterAll(async () => {
@@ -214,6 +216,13 @@ describe('initial appointment schema', () => {
         [fixture.professionalId],
       ),
     ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('defines Hub-intent delivery metadata in migration 003', async () => {
+    const sql = await readFile(migrationPaths[2]!, 'utf8');
+    expect(sql).toContain('hub_intent_id uuid');
+    expect(sql).toContain('hub_delivery_reported_at timestamptz');
+    expect(sql).toContain('outbox_messages_hub_intent_unique');
   });
 
   it.runIf(dockerAvailable)('provides the migrated tables through a Kysely client', async () => {
