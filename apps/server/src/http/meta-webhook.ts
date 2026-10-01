@@ -94,7 +94,7 @@ function extractMessages(payload: Record<string, unknown>): Array<{ id: string; 
   return result;
 }
 
-function extractFiscalEmailCopyInvoiceId(payload: Record<string, unknown>): string | null {
+export function extractFiscalEmailCopyInvoiceId(payload: Record<string, unknown>): string | null {
   const interactive = payload.interactive as Record<string, unknown> | undefined;
   const reply = interactive?.button_reply as Record<string, unknown> | undefined;
   const interactiveId = typeof reply?.id === 'string' ? reply.id : null;
