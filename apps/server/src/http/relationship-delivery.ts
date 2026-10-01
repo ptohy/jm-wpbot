@@ -134,6 +134,43 @@ async function fetchIntent(
   }
 }
 
+export async function reportRelationshipDelivery(
+  options: {
+    hubBaseUrl: string;
+    hubToken: string;
+    organizationId: string;
+    timeoutMs: number;
+  },
+  intentId: string,
+  result:
+    | { status: 'delivered'; providerMessageId: string }
+    | { status: 'failed'; errorCode: string },
+): Promise<void> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+  try {
+    const response = await fetch(
+      `${options.hubBaseUrl.replace(/\/$/, '')}/api/internal/automations/communication-intents/${encodeURIComponent(intentId)}/delivery`,
+      {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          authorization: `Bearer ${options.hubToken}`,
+          'x-hub-service': 'jm-wpbot',
+          'x-hub-organization': options.organizationId,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify(result),
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`Hub delivery callback failed (${response.status})`);
+    }
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function registerRelationshipDelivery(
   app: FastifyInstance,
   db: Kysely<Database>,
