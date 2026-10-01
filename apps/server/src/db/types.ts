@@ -155,6 +155,9 @@ export interface OutboxMessagesTable extends Timestamped {
   delivered_at: Timestamp | null;
   attempts: Generated<number>;
   last_error: string | null;
+  hub_intent_id: string | null;
+  hub_delivery_reported_at: Timestamp | null;
+  hub_delivery_error: string | null;
 }
 
 export interface AuditLogTable {
