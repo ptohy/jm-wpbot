@@ -51,25 +51,29 @@ export function registerFiscalDelivery(app: FastifyInstance, db: Kysely<Database
     const text = documentUrl
       ? `Sua NFS-e ${number} foi emitida. Consulte o documento: ${documentUrl}`
       : `Sua NFS-e ${number} foi emitida.`;
-    const payload: JsonObject = {
-      invoiceId,
-      type: "interactive",
-      interactive: {
-        type: "button",
-        body: { text },
-        action: {
-          buttons: allowEmailCopy
-            ? [{
+    const payload: JsonObject = allowEmailCopy
+      ? {
+          invoiceId,
+          type: "interactive",
+          interactive: {
+            type: "button",
+            body: { text },
+            action: {
+              buttons: [{
                 type: "reply",
                 reply: {
                   id: `fiscal_email_copy:${invoiceId}`,
                   title: "Enviar por e-mail",
                 },
-              }]
-            : [],
-        },
-      },
-    };
+              }],
+            },
+          },
+        }
+      : {
+          invoiceId,
+          type: "text",
+          text: { body: text },
+        };
 
     const outboxId = await enqueueOutbound(db, {
       customerId: customer.id,
