@@ -7,7 +7,14 @@ import rawBody from 'fastify-raw-body';
 import { withConversationLock } from './jobs/queue.js';
 import { processConversationTurn } from './conversation/turn.js';
 import { CloudWhatsAppClient } from './messaging/whatsapp-client.js';
-import { claimOutbound, markFailed, markSent } from './messaging/outbox.js';
+import {
+  claimOutbound,
+  listPendingHubDeliveryReports,
+  markFailed,
+  markHubDeliveryReported,
+  markHubDeliveryReportError,
+  markSent,
+} from './messaging/outbox.js';
 import { createLunaResponder } from './ai/luna.js';
 import { HubLunaToolExecutor } from './ai/hub-executor.js';
 import { registerAdminPanel } from './http/admin-panel.js';
@@ -17,6 +24,10 @@ import { canRetry, retryAt } from './messaging/reminders.js';
 import { OpenAITranscriber } from './media/transcription.js';
 import { WhatsAppMediaDownloader } from './media/whatsapp-media.js';
 import { registerFiscalDelivery } from './http/fiscal-delivery.js';
+import {
+  registerRelationshipDelivery,
+  reportRelationshipDelivery,
+} from './http/relationship-delivery.js';
 
 export interface BuildAppOptions {
   config?: AppConfig;
@@ -39,7 +50,23 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
     const db = createDatabase(config.databaseUrl);
     const boss = await createQueue(config.databaseUrl);
     registerMetaWebhook(app, db, boss, { verifyToken: config.whatsappVerifyToken, appSecret: config.whatsappAppSecret, hubInternalBaseUrl: config.hubInternalBaseUrl, hubInternalApiToken: config.hubInternalApiToken, hubInternalOrganizationId: config.hubInternalOrganizationId });
-    if (config.fiscalInternalToken) registerFiscalDelivery(app, db, config.fiscalInternalToken);
+    if (config.fiscalInternalToken) {
+      registerFiscalDelivery(app, db, config.fiscalInternalToken);
+    }
+    if (
+      config.automationInternalToken &&
+      config.hubInternalBaseUrl &&
+      config.hubInternalApiToken &&
+      config.hubInternalOrganizationId
+    ) {
+      registerRelationshipDelivery(app, db, {
+        internalToken: config.automationInternalToken,
+        hubBaseUrl: config.hubInternalBaseUrl,
+        hubToken: config.hubInternalApiToken,
+        organizationId: config.hubInternalOrganizationId,
+        timeoutMs: config.hubInternalTimeoutMs,
+      });
+    }
     registerAdminPanel(app, db, { nodeEnv: config.nodeEnv, devUser: process.env.PANEL_DEV_USER });
     app.addHook('onClose', async () => { await boss.stop(); await db.destroy(); });
   }
@@ -91,15 +118,79 @@ export async function startWorker(options: BuildAppOptions = {}): Promise<Fastif
   await boss.send('reminders.sweep', {}, { singletonKey: 'reminders-sweep', startAfter: 1 });
   const client = new CloudWhatsAppClient(config.whatsappAccessToken, config.whatsappPhoneNumberId);
   const heartbeat = setInterval(async () => {
-    const pending = await (await import('./messaging/outbox.js')).claimOutbound(db);
+    const pending = await claimOutbound(db);
     for (const row of pending) {
       try {
-        const customer = await db.selectFrom('customers').select('whatsapp_phone').where('id', '=', row.customer_id).executeTakeFirstOrThrow();
-        const result = await client.sendPayload(customer.whatsapp_phone, row.payload as Record<string, unknown>);
+        const customer = await db
+          .selectFrom('customers')
+          .select('whatsapp_phone')
+          .where('id', '=', row.customer_id)
+          .executeTakeFirstOrThrow();
+        const result = await client.sendPayload(
+          customer.whatsapp_phone,
+          row.payload as Record<string, unknown>,
+        );
         await markSent(db, row.id, result.providerMessageId);
       } catch (error) {
         const attempt = row.attempts + 1;
-        await markFailed(db, row.id, error instanceof Error ? error.message : String(error), retryAt(attempt), !canRetry(attempt));
+        await markFailed(
+          db,
+          row.id,
+          error instanceof Error ? error.message : String(error),
+          retryAt(attempt),
+          !canRetry(attempt),
+        );
+      }
+    }
+
+    if (
+      config.hubInternalBaseUrl &&
+      config.hubInternalApiToken &&
+      config.hubInternalOrganizationId
+    ) {
+      const reports = await listPendingHubDeliveryReports(db);
+      for (const report of reports) {
+        if (!report.hub_intent_id) continue;
+        try {
+          if (report.status === 'delivered' && report.provider_message_id) {
+            await reportRelationshipDelivery(
+              {
+                hubBaseUrl: config.hubInternalBaseUrl,
+                hubToken: config.hubInternalApiToken,
+                organizationId: config.hubInternalOrganizationId,
+                timeoutMs: config.hubInternalTimeoutMs,
+              },
+              report.hub_intent_id,
+              {
+                status: 'delivered',
+                providerMessageId: report.provider_message_id,
+              },
+            );
+          } else if (report.status === 'failed') {
+            await reportRelationshipDelivery(
+              {
+                hubBaseUrl: config.hubInternalBaseUrl,
+                hubToken: config.hubInternalApiToken,
+                organizationId: config.hubInternalOrganizationId,
+                timeoutMs: config.hubInternalTimeoutMs,
+              },
+              report.hub_intent_id,
+              {
+                status: 'failed',
+                errorCode: 'bella_delivery_failed',
+              },
+            );
+          } else {
+            continue;
+          }
+          await markHubDeliveryReported(db, report.id);
+        } catch (error) {
+          await markHubDeliveryReportError(
+            db,
+            report.id,
+            error instanceof Error ? error.message : String(error),
+          );
+        }
       }
     }
   }, 1000);
