@@ -9,6 +9,40 @@ function auth(request: any, token: string): boolean {
   return typeof value === "string" && value === `Bearer ${token}`;
 }
 
+export function buildInvoiceIssuedPayload(input: {
+  invoiceId: string;
+  number: string;
+  documentUrl: string;
+  allowEmailCopy: boolean;
+}): JsonObject {
+  const text = input.documentUrl
+    ? `Sua NFS-e ${input.number} foi emitida. Consulte o documento: ${input.documentUrl}`
+    : `Sua NFS-e ${input.number} foi emitida.`;
+  return input.allowEmailCopy
+    ? {
+        invoiceId: input.invoiceId,
+        type: "interactive",
+        interactive: {
+          type: "button",
+          body: { text },
+          action: {
+            buttons: [{
+              type: "reply",
+              reply: {
+                id: `fiscal_email_copy:${input.invoiceId}`,
+                title: "Enviar por e-mail",
+              },
+            }],
+          },
+        },
+      }
+    : {
+        invoiceId: input.invoiceId,
+        type: "text",
+        text: { body: text },
+      };
+}
+
 export function registerFiscalDelivery(app: FastifyInstance, db: Kysely<Database>, token: string) {
   app.post("/internal/fiscal/invoice-issued", async (request, reply) => {
     if (!auth(request, token)) return reply.code(401).send();
@@ -48,32 +82,12 @@ export function registerFiscalDelivery(app: FastifyInstance, db: Kysely<Database
       .returning("id")
       .executeTakeFirstOrThrow();
 
-    const text = documentUrl
-      ? `Sua NFS-e ${number} foi emitida. Consulte o documento: ${documentUrl}`
-      : `Sua NFS-e ${number} foi emitida.`;
-    const payload: JsonObject = allowEmailCopy
-      ? {
-          invoiceId,
-          type: "interactive",
-          interactive: {
-            type: "button",
-            body: { text },
-            action: {
-              buttons: [{
-                type: "reply",
-                reply: {
-                  id: `fiscal_email_copy:${invoiceId}`,
-                  title: "Enviar por e-mail",
-                },
-              }],
-            },
-          },
-        }
-      : {
-          invoiceId,
-          type: "text",
-          text: { body: text },
-        };
+    const payload = buildInvoiceIssuedPayload({
+      invoiceId,
+      number,
+      documentUrl,
+      allowEmailCopy,
+    });
 
     const outboxId = await enqueueOutbound(db, {
       customerId: customer.id,
