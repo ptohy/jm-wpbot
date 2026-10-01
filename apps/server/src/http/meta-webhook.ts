@@ -226,7 +226,7 @@ export function registerMetaWebhook(app: FastifyInstance, db: Kysely<Database>, 
     return reply.code(200).send({ status: 'accepted' });
   });
 }
-function extractStatuses(
+export function extractStatuses(
   payload: Record<string, unknown>,
 ): Array<{ id: string; status: 'delivered' | 'failed'; errorCode?: string }> {
   const result: Array<{
