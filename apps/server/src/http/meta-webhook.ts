@@ -4,6 +4,7 @@ import type { Kysely } from 'kysely';
 import type { Database, JsonValue } from '../db/types.js';
 import type PgBoss from 'pg-boss';
 import { enqueueConversation } from '../jobs/queue.js';
+import { enqueueOutbound } from '../messaging/outbox.js';
 
 export function verifyMetaSignature(raw: string, signature: string | undefined, secret: string): boolean {
   if (!signature?.startsWith('sha256=')) return false;
@@ -11,7 +12,13 @@ export function verifyMetaSignature(raw: string, signature: string | undefined, 
   const received = signature.slice(7); if (!/^[a-f0-9]{64}$/i.test(received)) return false;
   return timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(received, 'hex'));
 }
-export function registerMetaWebhook(app: FastifyInstance, db: Kysely<Database>, boss: PgBoss, opts: { verifyToken: string; appSecret: string }) {
+export function registerMetaWebhook(app: FastifyInstance, db: Kysely<Database>, boss: PgBoss, opts: {
+  verifyToken: string;
+  appSecret: string;
+  hubInternalBaseUrl?: string;
+  hubInternalApiToken?: string;
+  hubInternalOrganizationId?: string;
+}) {
   app.get('/webhooks/meta', async (request, reply) => { const q = request.query as Record<string, string>; if (q['hub.verify_token'] !== opts.verifyToken) return reply.code(403).send(); return reply.send(q['hub.challenge']); });
   app.post('/webhooks/meta', { config: { rawBody: true } }, async (request, reply) => {
     const raw = (request as typeof request & { rawBody?: string }).rawBody ?? JSON.stringify(request.body);
@@ -29,6 +36,29 @@ export function registerMetaWebhook(app: FastifyInstance, db: Kysely<Database>, 
         const current = existing ?? await db.insertInto('conversations').values({ customer_id: customer.id }).returning('id').executeTakeFirstOrThrow();
         await db.insertInto('messages').values({ conversation_id: current.id, provider_message_id: message.id, direction: 'inbound', message_type: message.type, body: message.body, payload: message.payload as JsonValue, occurred_at: message.occurredAt }).onConflict((oc) => oc.column('provider_message_id').doNothing()).execute();
         await db.updateTable('conversations').set({ last_message_at: message.occurredAt as any, last_inbound_at: message.occurredAt as any, updated_at: new Date() as any }).where('id', '=', current.id).execute();
+
+        const fiscalInvoiceId = extractFiscalEmailCopyInvoiceId(message.payload);
+        if (fiscalInvoiceId && opts.hubInternalBaseUrl && opts.hubInternalApiToken && opts.hubInternalOrganizationId) {
+          const result = await requestFiscalEmailCopy(
+            opts.hubInternalBaseUrl,
+            opts.hubInternalApiToken,
+            opts.hubInternalOrganizationId,
+            fiscalInvoiceId,
+          );
+          const body = result.status === 'requested'
+            ? 'Pronto. Enviei uma cópia da NFS-e por e-mail.'
+            : result.reason === 'email_unavailable'
+              ? 'Não encontrei um e-mail cadastrado para este cliente.'
+              : result.reason === 'not_issued'
+                ? 'A NFS-e ainda não está autorizada para envio.'
+                : 'O envio por e-mail está desativado para este atendimento.';
+          await enqueueOutbound(db, {
+            customerId: customer.id,
+            conversationId: current.id,
+            payload: { type: 'text', text: { body } },
+          });
+          continue;
+        }
         await enqueueConversation(boss, current.id);
       }
     }
@@ -51,4 +81,40 @@ function extractMessages(payload: Record<string, unknown>): Array<{ id: string; 
     }
   }
   return result;
+}
+
+function extractFiscalEmailCopyInvoiceId(payload: Record<string, unknown>): string | null {
+  const interactive = payload.interactive as Record<string, unknown> | undefined;
+  const reply = interactive?.button_reply as Record<string, unknown> | undefined;
+  const interactiveId = typeof reply?.id === 'string' ? reply.id : null;
+  const legacyButton = payload.button as Record<string, unknown> | undefined;
+  const legacyId = typeof legacyButton?.payload === 'string' ? legacyButton.payload : null;
+  const value = interactiveId ?? legacyId;
+  if (!value?.startsWith('fiscal_email_copy:')) return null;
+  const invoiceId = value.slice('fiscal_email_copy:'.length).trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(invoiceId) ? invoiceId : null;
+}
+
+async function requestFiscalEmailCopy(
+  baseUrl: string,
+  token: string,
+  organizationId: string,
+  invoiceId: string,
+): Promise<{ status: 'requested' | 'skipped'; reason?: string }> {
+  const response = await fetch(`${baseUrl.replace(/\/$/, '')}/api/internal/fiscal/invoice-email-copy`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${token}`,
+      'x-hub-service': 'jm-wpbot',
+      'x-hub-organization': organizationId,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ invoiceId }),
+  });
+  const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok) throw new Error(typeof body.message === 'string' ? body.message : 'Hub email-copy request failed');
+  return {
+    status: body.status === 'requested' ? 'requested' : 'skipped',
+    reason: typeof body.reason === 'string' ? body.reason : undefined,
+  };
 }
