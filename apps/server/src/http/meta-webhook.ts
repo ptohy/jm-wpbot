@@ -39,24 +39,35 @@ export function registerMetaWebhook(app: FastifyInstance, db: Kysely<Database>, 
 
         const fiscalInvoiceId = extractFiscalEmailCopyInvoiceId(message.payload);
         if (fiscalInvoiceId && opts.hubInternalBaseUrl && opts.hubInternalApiToken && opts.hubInternalOrganizationId) {
-          const result = await requestFiscalEmailCopy(
-            opts.hubInternalBaseUrl,
-            opts.hubInternalApiToken,
-            opts.hubInternalOrganizationId,
-            fiscalInvoiceId,
-          );
-          const body = result.status === 'requested'
-            ? 'Pronto. Enviei uma cópia da NFS-e por e-mail.'
-            : result.reason === 'email_unavailable'
-              ? 'Não encontrei um e-mail cadastrado para este cliente.'
-              : result.reason === 'not_issued'
-                ? 'A NFS-e ainda não está autorizada para envio.'
-                : 'O envio por e-mail está desativado para este atendimento.';
-          await enqueueOutbound(db, {
-            customerId: customer.id,
-            conversationId: current.id,
-            payload: { type: 'text', text: { body } },
-          });
+          try {
+            const result = await requestFiscalEmailCopy(
+              opts.hubInternalBaseUrl,
+              opts.hubInternalApiToken,
+              opts.hubInternalOrganizationId,
+              fiscalInvoiceId,
+            );
+            const body = result.status === 'requested'
+              ? 'Pronto. Enviei uma cópia da NFS-e por e-mail.'
+              : result.reason === 'email_unavailable'
+                ? 'Não encontrei um e-mail cadastrado para este cliente.'
+                : result.reason === 'not_issued'
+                  ? 'A NFS-e ainda não está autorizada para envio.'
+                  : 'O envio por e-mail está desativado para este atendimento.';
+            await enqueueOutbound(db, {
+              customerId: customer.id,
+              conversationId: current.id,
+              payload: { type: 'text', text: { body } },
+            });
+          } catch {
+            await enqueueOutbound(db, {
+              customerId: customer.id,
+              conversationId: current.id,
+              payload: {
+                type: 'text',
+                text: { body: 'Não consegui enviar a cópia por e-mail agora. Tente novamente em instantes.' },
+              },
+            });
+          }
           continue;
         }
         await enqueueConversation(boss, current.id);
