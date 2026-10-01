@@ -7,7 +7,9 @@ import { Pool } from 'pg';
 const migrationPaths = [
   '../../apps/server/src/db/migrations/001_initial.sql',
   '../../apps/server/src/db/migrations/002_reminder_idempotency.sql',
-  '../../apps/server/src/db/migrations/003_hub_intent_delivery.sql',
+  '../../apps/server/src/db/migrations/002_working_hours.sql',
+  '../../apps/server/src/db/migrations/003_media_transcription.sql',
+  '../../apps/server/src/db/migrations/004_hub_intent_delivery.sql',
 ].map((path) => fileURLToPath(new URL(path, import.meta.url)));
 const migrationPath = migrationPaths[0]!;
 
@@ -218,8 +220,8 @@ describe('initial appointment schema', () => {
     ).rejects.toMatchObject({ code: '23514' });
   });
 
-  it('defines Hub-intent delivery metadata in migration 003', async () => {
-    const sql = await readFile(migrationPaths[2]!, 'utf8');
+  it('defines Hub-intent delivery metadata in migration 004', async () => {
+    const sql = await readFile(migrationPaths[4]!, 'utf8');
     expect(sql).toContain('hub_intent_id uuid');
     expect(sql).toContain('hub_delivery_reported_at timestamptz');
     expect(sql).toContain('outbox_messages_hub_intent_unique');
@@ -237,7 +239,9 @@ describe('initial appointment schema', () => {
     expect(ledger.rows.map((row) => row.name)).toEqual([
       '001_initial.sql',
       '002_reminder_idempotency.sql',
-      '003_hub_intent_delivery.sql',
+      '002_working_hours.sql',
+      '003_media_transcription.sql',
+      '004_hub_intent_delivery.sql',
     ]);
   });
 
