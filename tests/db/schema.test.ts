@@ -4,9 +4,12 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 
-const migrationPath = fileURLToPath(
-  new URL('../../apps/server/src/db/migrations/001_initial.sql', import.meta.url),
-);
+const migrationPaths = [
+  '../../apps/server/src/db/migrations/001_initial.sql',
+  '../../apps/server/src/db/migrations/002_reminder_idempotency.sql',
+  '../../apps/server/src/db/migrations/003_hub_intent_delivery.sql',
+].map((path) => fileURLToPath(new URL(path, import.meta.url)));
+const migrationPath = migrationPaths[0]!;
 
 const requiredTables = [
   'users',
