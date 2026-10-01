@@ -109,6 +109,84 @@ export function registerMetaWebhook(app: FastifyInstance, db: Kysely<Database>, 
         await db.insertInto('messages').values({ conversation_id: current.id, provider_message_id: message.id, direction: 'inbound', message_type: message.type, body: message.body, payload: message.payload as JsonValue, occurred_at: message.occurredAt }).onConflict((oc) => oc.column('provider_message_id').doNothing()).execute();
         await db.updateTable('conversations').set({ last_message_at: message.occurredAt as any, last_inbound_at: message.occurredAt as any, updated_at: new Date() as any }).where('id', '=', current.id).execute();
 
+        const relationshipAction = extractRelationshipAction(message.payload);
+        if (relationshipAction?.kind === 'package_renew') {
+          if (
+            opts.hubInternalBaseUrl &&
+            opts.hubInternalApiToken &&
+            opts.hubInternalOrganizationId
+          ) {
+            try {
+              const renewal = await requestPackageRenewal(
+                opts.hubInternalBaseUrl,
+                opts.hubInternalApiToken,
+                opts.hubInternalOrganizationId,
+                relationshipAction.packageId,
+              );
+              await enqueueOutbound(db, {
+                customerId: customer.id,
+                conversationId: current.id,
+                payload: {
+                  type: 'text',
+                  text: {
+                    body:
+                      `Seu link seguro para renovar o pacote é:\n${renewal.paymentUrl}\n\nAssim que o pagamento for confirmado, as 3 novas sessões serão liberadas automaticamente.`,
+                  },
+                },
+              });
+            } catch {
+              await enqueueOutbound(db, {
+                customerId: customer.id,
+                conversationId: current.id,
+                payload: {
+                  type: 'text',
+                  text: {
+                    body:
+                      'Não consegui gerar o link de renovação agora. Vou deixar o atendimento aberto para tentarmos novamente.',
+                  },
+                },
+              });
+            }
+          }
+          continue;
+        }
+
+        if (relationshipAction?.kind === 'later') {
+          await enqueueOutbound(db, {
+            customerId: customer.id,
+            conversationId: current.id,
+            payload: {
+              type: 'text',
+              text: {
+                body: 'Sem problema. Quando quiser continuar, é só me chamar por aqui.',
+              },
+            },
+          });
+          continue;
+        }
+
+        if (relationshipAction?.kind === 'human') {
+          await db
+            .updateTable('conversations')
+            .set({
+              ai_paused_at: new Date() as any,
+              updated_at: new Date() as any,
+            })
+            .where('id', '=', current.id)
+            .execute();
+          await enqueueOutbound(db, {
+            customerId: customer.id,
+            conversationId: current.id,
+            payload: {
+              type: 'text',
+              text: {
+                body: 'Certo. Vou deixar a conversa para atendimento humano.',
+              },
+            },
+          });
+          continue;
+        }
+
         const fiscalInvoiceId = extractFiscalEmailCopyInvoiceId(message.payload);
         if (fiscalInvoiceId && opts.hubInternalBaseUrl && opts.hubInternalApiToken && opts.hubInternalOrganizationId) {
           try {
@@ -194,11 +272,65 @@ function extractMessages(payload: Record<string, unknown>): Array<{ id: string; 
     const changes = Array.isArray((entry as any)?.changes) ? (entry as any).changes : [];
     for (const change of changes) for (const message of ((change as any)?.value?.messages ?? [])) {
       const contact = ((change as any)?.value?.contacts ?? []).find((item: any) => item.wa_id === message.from);
-      const body = message.text?.body ?? message.button?.text ?? message.interactive?.button_reply?.title ?? null;
+      const replyId =
+        typeof message.interactive?.button_reply?.id === 'string'
+          ? message.interactive.button_reply.id
+          : typeof message.button?.payload === 'string'
+            ? message.button.payload
+            : null;
+      const returnServiceId =
+        replyId?.startsWith('relationship_return_slots:')
+          ? replyId.slice('relationship_return_slots:'.length)
+          : null;
+      const body = returnServiceId
+        ? `Quero agendar novamente. serviceId=${returnServiceId}`
+        : message.text?.body ??
+          message.button?.text ??
+          message.interactive?.button_reply?.title ??
+          null;
       result.push({ id: String(message.id), phone: String(message.from), name: contact?.profile?.name, type: String(message.type ?? 'unknown'), body, payload: message, occurredAt: new Date(Number(message.timestamp ?? Math.floor(Date.now() / 1000)) * 1000) });
     }
   }
   return result;
+}
+
+export type RelationshipAction =
+  | { kind: 'return_slots'; serviceId: string }
+  | { kind: 'package_renew'; packageId: string }
+  | { kind: 'later' }
+  | { kind: 'human' };
+
+export function extractRelationshipAction(
+  payload: Record<string, unknown>,
+): RelationshipAction | null {
+  const interactive = payload.interactive as Record<string, unknown> | undefined;
+  const reply = interactive?.button_reply as Record<string, unknown> | undefined;
+  const interactiveId = typeof reply?.id === 'string' ? reply.id : null;
+  const legacyButton = payload.button as Record<string, unknown> | undefined;
+  const legacyId = typeof legacyButton?.payload === 'string'
+    ? legacyButton.payload
+    : null;
+  const value = interactiveId ?? legacyId;
+  if (!value) return null;
+
+  if (value === 'relationship_later') return { kind: 'later' };
+  if (value === 'relationship_human') return { kind: 'human' };
+
+  if (value.startsWith('relationship_return_slots:')) {
+    const serviceId = value.slice('relationship_return_slots:'.length).trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(serviceId)
+      ? { kind: 'return_slots', serviceId }
+      : null;
+  }
+
+  if (value.startsWith('relationship_package_renew:')) {
+    const packageId = value.slice('relationship_package_renew:'.length).trim();
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(packageId)
+      ? { kind: 'package_renew', packageId }
+      : null;
+  }
+
+  return null;
 }
 
 export function extractFiscalEmailCopyInvoiceId(payload: Record<string, unknown>): string | null {
@@ -211,6 +343,47 @@ export function extractFiscalEmailCopyInvoiceId(payload: Record<string, unknown>
   if (!value?.startsWith('fiscal_email_copy:')) return null;
   const invoiceId = value.slice('fiscal_email_copy:'.length).trim();
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(invoiceId) ? invoiceId : null;
+}
+
+async function requestPackageRenewal(
+  baseUrl: string,
+  token: string,
+  organizationId: string,
+  packageId: string,
+): Promise<{ paymentUrl: string; packageId: string; paymentId: string }> {
+  const response = await fetch(
+    `${baseUrl.replace(/\/$/, '')}/api/internal/commercial-products/packages/${encodeURIComponent(packageId)}/renew`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${token}`,
+        'x-hub-service': 'jm-wpbot',
+        'x-hub-organization': organizationId,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({}),
+    },
+  );
+  const body = (await response.json().catch(() => ({}))) as {
+    item?: {
+      paymentUrl?: unknown;
+      packageId?: unknown;
+      paymentId?: unknown;
+    };
+  };
+  if (
+    !response.ok ||
+    typeof body.item?.paymentUrl !== 'string' ||
+    typeof body.item?.packageId !== 'string' ||
+    typeof body.item?.paymentId !== 'string'
+  ) {
+    throw new Error('Hub package renewal request failed');
+  }
+  return {
+    paymentUrl: body.item.paymentUrl,
+    packageId: body.item.packageId,
+    paymentId: body.item.paymentId,
+  };
 }
 
 async function requestFiscalEmailCopy(
