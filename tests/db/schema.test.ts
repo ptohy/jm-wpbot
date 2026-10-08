@@ -4,9 +4,14 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 
-const migrationPath = fileURLToPath(
-  new URL('../../apps/server/src/db/migrations/001_initial.sql', import.meta.url),
-);
+const migrationPaths = [
+  '../../apps/server/src/db/migrations/001_initial.sql',
+  '../../apps/server/src/db/migrations/002_reminder_idempotency.sql',
+  '../../apps/server/src/db/migrations/002_working_hours.sql',
+  '../../apps/server/src/db/migrations/003_media_transcription.sql',
+  '../../apps/server/src/db/migrations/004_hub_intent_delivery.sql',
+].map((path) => fileURLToPath(new URL(path, import.meta.url)));
+const migrationPath = migrationPaths[0]!;
 
 const requiredTables = [
   'users',
@@ -109,7 +114,9 @@ beforeAll(async () => {
   const port = (JSON.parse(portJson) as Record<string, Array<{ HostPort: string }>>)['5432/tcp'][0].HostPort;
   databaseUrl = `postgres://test:test@127.0.0.1:${port}/test`;
   pool = await waitForDatabase(databaseUrl);
-  await pool.query(await readFile(migrationPath, 'utf8'));
+  for (const path of migrationPaths) {
+    await pool.query(await readFile(path, 'utf8'));
+  }
 }, 20_000);
 
 afterAll(async () => {
@@ -211,6 +218,31 @@ describe('initial appointment schema', () => {
         [fixture.professionalId],
       ),
     ).rejects.toMatchObject({ code: '23514' });
+  });
+
+  it('defines Hub-intent delivery metadata in migration 004', async () => {
+    const sql = await readFile(migrationPaths[4]!, 'utf8');
+    expect(sql).toContain('hub_intent_id uuid');
+    expect(sql).toContain('hub_delivery_reported_at timestamptz');
+    expect(sql).toContain('outbox_messages_hub_intent_unique');
+  });
+
+  it.runIf(dockerAvailable)('baselines an existing legacy schema without replaying migrations', async () => {
+    if (!databaseUrl || !pool) throw new Error('PostgreSQL URL was not initialized');
+    const { runMigrations } = await import('../../apps/server/src/db/migrate.js');
+
+    await expect(runMigrations(databaseUrl)).resolves.toEqual([]);
+
+    const ledger = await pool.query<{ name: string }>(
+      'select name from schema_migrations order by name',
+    );
+    expect(ledger.rows.map((row) => row.name)).toEqual([
+      '001_initial.sql',
+      '002_reminder_idempotency.sql',
+      '002_working_hours.sql',
+      '003_media_transcription.sql',
+      '004_hub_intent_delivery.sql',
+    ]);
   });
 
   it.runIf(dockerAvailable)('provides the migrated tables through a Kysely client', async () => {
