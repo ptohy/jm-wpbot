@@ -17,6 +17,7 @@ export interface AppConfig {
   hubInternalOrganizationId?: string;
   hubInternalTimeoutMs: number;
   fiscalInternalToken?: string;
+  automationInternalToken?: string;
 }
 
 
@@ -40,6 +41,8 @@ export function loadConfig(env: Environment = process.env): AppConfig {
   const hubInternalBaseUrl = env.HUB_INTERNAL_BASE_URL?.trim() || 'https://hub.tohy.com.br';
   const hubInternalTimeoutMs = Number(env.HUB_INTERNAL_TIMEOUT_MS ?? '10000');
   const fiscalInternalToken = env.FISCAL_INTERNAL_TOKEN?.trim() || undefined;
+  const automationInternalToken =
+    env.AUTOMATION_INTERNAL_TOKEN?.trim() || undefined;
   if (!Number.isFinite(mediaTimeoutMs) || mediaTimeoutMs <= 0) {
     throw new Error('MEDIA_TIMEOUT_MS must be a finite number greater than 0');
   }
@@ -70,5 +73,6 @@ export function loadConfig(env: Environment = process.env): AppConfig {
     hubInternalOrganizationId,
     hubInternalTimeoutMs,
     fiscalInternalToken,
+    automationInternalToken,
   };
 }
